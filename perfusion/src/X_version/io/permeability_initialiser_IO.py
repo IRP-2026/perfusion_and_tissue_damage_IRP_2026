@@ -92,7 +92,7 @@ def initialise_permeabilities(K1_space, K2_space, permeability_folder, **kwarg):
     # Step 1: Determine model type
     model_type = kwarg.get('model_type', 'acv')
 
-    if model_type is not 'acv' and model_type is not 'a':
+    if model_type not in ("acv", "a"):
         IO_functions.print0(f"ERROR: Unknown model type '{model_type}' encountered.")
         raise Exception("unknown model type: " + model_type)
 
