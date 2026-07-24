@@ -1,3 +1,5 @@
+from symtable import Function
+
 import dolfinx
 from dolfinx import fem, io, mesh
 from dolfinx.fem.petsc import LinearProblem
@@ -5,6 +7,7 @@ import ufl
 import basix
 import numpy as np
 from typing import Optional
+import pandas as pd
 from mpi4py import MPI
 import warnings
 import os
@@ -28,7 +31,6 @@ def set_coupling_coeff(beta):
     beta32 = beta23
     
     return beta12, beta13, beta21, beta23, beta31, beta32
-
 
 def compute_vessel_orientation(subdomains, boundaries, mesh, res_fldr, save_subres):
     """
@@ -115,6 +117,7 @@ def compute_vessel_orientation(subdomains, boundaries, mesh, res_fldr, save_subr
     L_proj = ufl.inner(f_expr, v_proj) * ufl.dx(mesh)
     problem_proj = LinearProblem(a_proj, L_proj, bcs=[], petsc_options={"ksp_type": "bcgs"}, petsc_options_prefix="proj_")
     E = problem_proj.solve()
+    E.name = "e_loc" 
 
     # Solve finite element problem for interpolation
     if fe_degr > 1:
@@ -142,6 +145,7 @@ def compute_vessel_orientation(subdomains, boundaries, mesh, res_fldr, save_subr
     # Compute main direction of the vessels
     print0('step 2.3.1: COMPUTING MAIN DIRECTION')
     main_direction = fem.Function(Vdir)
+    main_direction.name = "main_direction"
     main_direction_array = main_direction.x.array
     for i in range(int(len(e_array) / 3)):
         indices = np.where(abs(e_array[i * 3:(i + 1) * 3]) >= np.sqrt(1 / 3))[0]
@@ -200,6 +204,7 @@ def permeability_tensor_computation(
 
     # Initialise a new function in K_space
     K1 = fem.Function(K_space)
+    K1.name = "K1_form"
     K1_arr = np.zeros(K1.x.array.shape, dtype=K1.x.array.dtype)
     print(f"[Rank {rank}] Initialized K1_arr dtype={K1_arr.dtype}, shape={K1_arr.shape}")
 
@@ -392,6 +397,7 @@ def region_label_assembler(region: Optional[dolfinx.mesh.MeshTags]) -> tuple[np.
 
 
 
+
 def comp_transf_mat(e0, e1):
     v = np.cross(e0, e1)
     s = np.linalg.norm(v)  # sine
@@ -404,7 +410,127 @@ def comp_transf_mat(e0, e1):
 
     return T
 
+def compute_boundary_area(mesh, boundaries, labels, n_labels):
+    """
+    Compute the area of each boundary region.
 
+    Args:
+        mesh (dolfinx.mesh.Mesh): The mesh.
+        boundaries (dolfinx.mesh.MeshTags): Facet tags.
+        labels (np.ndarray): Array of boundary label IDs.
+        n_labels (int): Number of labels.
+
+    Returns:
+        np.ndarray: Area for each label.
+    """
+    area = []
+    for i in range(n_labels):
+        tag = int(labels[i])
+        dS = ufl.Measure('ds', domain=mesh, subdomain_data=boundaries)
+        form = fem.form(fem.Constant(mesh, 1.0) * dS(tag))
+        area.append(fem.assemble_scalar(form))
+    return np.array(area)
+
+
+# ---------------------------------------------------------------------------
+# compute_subdm_vol
+# ---------------------------------------------------------------------------
+def compute_subdm_vol(mesh, subdomains, labels, n_labels):
+    """
+    Compute the volume of each subdomain region.
+
+    Args:
+        mesh (dolfinx.mesh.Mesh): The mesh.
+        subdomains (dolfinx.mesh.MeshTags): Cell tags.
+        labels (np.ndarray): Array of subdomain label IDs.
+        n_labels (int): Number of labels.
+
+    Returns:
+        np.ndarray: Volume for each label.
+    """
+    volume = []
+    for i in range(n_labels):
+        tag = int(labels[i])
+        dV = ufl.Measure('dx', domain=mesh, subdomain_data=subdomains)
+        form = fem.form(fem.Constant(mesh, 1.0) * dV(tag))
+        volume.append(fem.assemble_scalar(form))
+    return np.array(volume)
+
+
+# ---------------------------------------------------------------------------
+# surface_integrate
+# ---------------------------------------------------------------------------
+def surface_integrate(variable, mesh, boundaries, labels, n_labels, magn):
+    """
+    Integrate a field over each boundary surface region.
+
+    Args:
+        variable (dolfinx.fem.Function): Field to integrate.
+        mesh (dolfinx.mesh.Mesh): The mesh.
+        boundaries (dolfinx.mesh.MeshTags): Facet tags.
+        labels (np.ndarray): Boundary label IDs.
+        n_labels (int): Number of labels.
+        magn (bool): If True, integrate magnitude (for vector fields).
+
+    Returns:
+        np.ndarray: Integral value per label.
+    """
+    dS = ufl.Measure('ds', domain=mesh, subdomain_data=boundaries)
+    surface_integrals = []
+
+    # value_size returns an int — safer than value_shape tuple comparison
+    is_scalar = (len(variable.function_space.element.value_shape) == 0)
+
+    for i in range(n_labels):
+        tag = int(labels[i])
+        if is_scalar:
+            expr = variable * dS(tag)
+        elif magn:
+            expr = ufl.sqrt(ufl.inner(variable, variable)) * dS(tag)
+        else:
+            n = ufl.FacetNormal(mesh)
+            expr = ufl.dot(variable, n) * dS(tag)
+        surface_integrals.append(fem.assemble_scalar(fem.form(expr)))
+
+    return np.array(surface_integrals)
+
+
+# ---------------------------------------------------------------------------
+# volume_integrate
+# ---------------------------------------------------------------------------
+def volume_integrate(variable, mesh, subdomains, labels, n_labels, magn):
+    """
+    Integrate a field over each subdomain volume region.
+
+    Args:
+        variable (dolfinx.fem.Function): Field to integrate.
+        mesh (dolfinx.mesh.Mesh): The mesh.
+        subdomains (dolfinx.mesh.MeshTags): Cell tags.
+        labels (np.ndarray): Subdomain label IDs.
+        n_labels (int): Number of labels.
+        magn (bool): If True, integrate magnitude (for vector fields).
+
+    Returns:
+        np.ndarray: Integral value per label, or empty list for non-scalar/non-magn vectors.
+    """
+    dV = ufl.Measure('dx', domain=mesh, subdomain_data=subdomains)
+    volume_integrals = []
+    is_scalar = (len(variable.function_space.element.value_shape) == 0)
+    if is_scalar:
+        for i in range(n_labels):
+            tag = int(labels[i])
+            form = fem.form(variable * dV(tag))
+            volume_integrals.append(fem.assemble_scalar(form))
+    elif magn:
+        for i in range(n_labels):
+            tag = int(labels[i])
+            form = fem.form(ufl.sqrt(ufl.inner(variable, variable)) * dV(tag))
+            volume_integrals.append(fem.assemble_scalar(form))
+    else:
+        print0("warning: volumetric integration of non-scalar variables has not been implemented!")
+        return volume_integrals
+
+    return np.array(volume_integrals)
 
 def _project(expression, target_space):
     """Project an UFL expression onto a given FunctionSpace using DOLFINx.
@@ -465,7 +591,6 @@ def compute_my_variables(p, K1, K2, K3, beta12, beta23, p_venous,
             p2 = p.sub(1).collapse()
             p3 = p.sub(2).collapse()
 
-            # Pour les calculs mathématiques/UFL (gradients, lois), on utilise ufl.split
             # For mathematical operations/UFL (gradients, Darcy's law), we use ufl.split 
             p1_ufl, p2_ufl, p3_ufl = ufl.split(p)
 
@@ -540,7 +665,6 @@ def compute_my_variables(p, K1, K2, K3, beta12, beta23, p_venous,
                 field = myResults[myvar]
 
                 if myvar == 'perfusion':
-                    # Scale the perfusion (x 6000) via the local NumPy array
                     perf_scaled = fem.Function(field.function_space)
                     perf_scaled.name = "perfusion"
                     perf_scaled.x.array[:] = field.x.array[:] * 6000.0
@@ -555,5 +679,144 @@ def compute_my_variables(p, K1, K2, K3, beta12, beta23, p_venous,
                         myfile.write_function(field)
             else:
                 if rank == 0:
-                    print(f"Warning: the variable '{myvar}' could not be saved because it is not defined.")
+                    print(f"Warning: la variable '{myvar}' n'a pas pu être sauvée car elle n'est pas définie.")
 
+def compute_integral_quantities(configs, myResults, my_integr_vars,
+                                mesh, subdomains, boundaries, rank, **kwarg):
+    """
+    Compute surface and volume integrals of result fields and write to CSV.
+
+    Integral types supported (suffix on variable name in config):
+        _surfint  : surface integral
+        _voluint  : volume integral
+        _surfave  : surface average (integral / area)
+        _voluave  : volume average (integral / volume)
+
+    Args:
+        configs (dict): Configuration dictionary.
+        myResults (dict): Computed field variables.
+        my_integr_vars (dict): Dictionary to store integral results (modified in place).
+        mesh (dolfinx.mesh.Mesh): The mesh.
+        subdomains (dolfinx.mesh.MeshTags): Cell tags.
+        boundaries (dolfinx.mesh.MeshTags): Facet tags.
+        rank (int): MPI rank.
+        **kwarg: Optional 'save_data' (bool, default True).
+
+    Returns:
+        tuple: (surf_int_values, surf_int_header, volu_int_values, volu_int_header)
+    """
+    save_data = kwarg.get('save_data', True)
+
+    surf_int_values = []; surf_int_header = ''; surf_int_dat_struct = ''
+    volu_int_values = []; volu_int_header = ''; volu_int_dat_struct = ''
+    res_keys = set(myResults.keys())
+
+    int_vars = configs['output']['integral_vars']
+    if len(int_vars) == 0:
+        if rank == 0:
+            print('No variables have been defined for integration!')
+        return [], [], [], []
+
+    int_types = {intvar.split('_')[-1] for intvar in int_vars}
+
+    # Prepare boundary info if needed
+    if 'surfave' in int_types or 'surfint' in int_types:
+        bound_label, n_bound_label = region_label_assembler(boundaries)
+        bound_label = bound_label[bound_label > 0]
+        n_bound_label = len(bound_label)
+
+    if 'surfave' in int_types:
+        bound_areas = compute_boundary_area(mesh, boundaries, bound_label, n_bound_label)
+        surf_int_values.append(bound_label)
+        surf_int_values.append(bound_areas)
+        surf_int_header += 'surf ID,area,'
+        surf_int_dat_struct += '%d,%e,'
+    elif 'surfint' in int_types:
+        surf_int_values.append(bound_label)
+        surf_int_header += 'surf ID,'
+        surf_int_dat_struct += '%d,'
+
+    # Prepare subdomain info if needed
+    if 'voluave' in int_types or 'voluint' in int_types:
+        subdom_label, n_subdom_label = region_label_assembler(subdomains)
+
+    if 'voluave' in int_types:
+        subdom_vols = compute_subdm_vol(mesh, subdomains, subdom_label, n_subdom_label)
+        volu_int_values.append(subdom_label)
+        volu_int_values.append(subdom_vols)
+        volu_int_header += 'volu ID,volu,'
+        volu_int_dat_struct += '%d,%e,'
+    elif 'voluint' in int_types:
+        volu_int_values.append(subdom_label)
+        volu_int_header += 'volu ID,'
+        volu_int_dat_struct += '%d,'
+
+    # Compute each requested integral
+    for intvar in int_vars:
+        intvar_parts = intvar.split('_')
+        var2int = intvar_parts[0]
+        magn_indicator = intvar_parts[1] == 'magn'
+        int_type = intvar_parts[-1]
+
+        if var2int not in res_keys:
+            if rank == 0:
+                print('warning: ' + var2int + ' variable cannot be integrated - variable undefined!')
+            continue
+
+        if int_type == 'surfint':
+            my_integr_vars[intvar] = surface_integrate(
+                myResults[var2int], mesh, boundaries, bound_label, n_bound_label, magn_indicator
+            )
+        elif int_type == 'voluint':
+            result = volume_integrate(
+                myResults[var2int], mesh, subdomains, subdom_label, n_subdom_label, magn_indicator
+            )
+            if len(result) > 0:
+                my_integr_vars[intvar] = result
+        elif int_type == 'surfave':
+            integrals = surface_integrate(
+                myResults[var2int], mesh, boundaries, bound_label, n_bound_label, magn_indicator
+            )
+            my_integr_vars[intvar] = integrals / bound_areas
+        elif int_type == 'voluave':
+            result = volume_integrate(
+                myResults[var2int], mesh, subdomains, subdom_label, n_subdom_label, magn_indicator
+            )
+            if len(result) > 0:
+                my_integr_vars[intvar] = result / subdom_vols
+        else:
+            if rank == 0:
+                print('warning: ' + int_type + ' is not recognised!')
+
+    # Collect into flat arrays for CSV export
+    for intvar in list(my_integr_vars.keys()):
+        suffix = intvar.split('_')[-1]
+        if suffix[:4] == 'surf':
+            surf_int_values.append(my_integr_vars[intvar])
+            surf_int_header += intvar + ','
+            surf_int_dat_struct += '%e,'
+        else:
+            volu_int_values.append(my_integr_vars[intvar])
+            volu_int_header += intvar + ','
+            volu_int_dat_struct += '%e,'
+
+    surf_int_values = np.array(surf_int_values).T if surf_int_values else np.array([])
+    volu_int_values = np.array(volu_int_values).T if volu_int_values else np.array([])
+
+    if save_data and rank == 0:
+        results_folder = configs['output']['res_fldr'].strip()
+        os.makedirs(results_folder, exist_ok=True)
+
+        if surf_int_values.size > 0:
+            surf_cols = [c.strip() for c in surf_int_header.rstrip(',').split(',')]
+            pd.DataFrame(surf_int_values, columns=surf_cols).to_csv(
+                os.path.join(results_folder, 'surface_integrals.csv'), index=False
+            )
+
+        if volu_int_values.size > 0:
+            volu_cols = [c.strip() for c in volu_int_header.rstrip(',').split(',')]
+            pd.DataFrame(volu_int_values, columns=volu_cols).to_csv(
+                os.path.join(results_folder, 'volume_integrals.csv'), index=False
+            )
+
+    return surf_int_values, surf_int_header, volu_int_values, volu_int_header
