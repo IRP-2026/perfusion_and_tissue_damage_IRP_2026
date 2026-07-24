@@ -27,7 +27,7 @@ from mpi4py import MPI
 
 # Local imports
 from src.X_version.io import IO_functions, basic_flow_solver_IO, permeability_initialiser_IO as perm_IO
-from src.X_version.utils import suppl_fcts_x, config_utils
+from src.X_version.utils import suppl_fcts, config_utils
 from src.X_version.utils import finite_element_functions as fe_module
 
 # Global settings
@@ -228,13 +228,13 @@ def main():
     # Scale permeability tensors and coupling coefficients
     if rank == 0:
         print('\t Scaling coupling coefficients and permeability tensors')
-    K1, K2, K3 = suppl_fcts_x.scale_permeabilities(
+    K1, K2, K3 = suppl_fcts.scale_permeabilities(
         subdomains, K1, K2, K3,
         K1gm_ref, K2gm_ref, K3gm_ref, gmowm_perm_rat,
         result_folder,
         model_type=compartmental_model
     )
-    beta12, beta23 = suppl_fcts_x.scale_coupling_coefficients(
+    beta12, beta23 = suppl_fcts.scale_coupling_coefficients(
         subdomains, beta12gm, beta23gm, gmowm_beta_rat,
         K2_space, result_folder,
         model_type=compartmental_model
@@ -304,16 +304,16 @@ def main():
         os.makedirs(result_folder, exist_ok=True)
 
     results = {}
-    suppl_fcts_x.compute_my_variables(
+    suppl_fcts.compute_my_variables(
         p_sol, K1, K2, K3, beta12, beta23, p_venous,
         Vp, Vvel, K2_space,
-        configs, results, compartmental_model, rank
+        configs, results, compartmental_model, rank, comm
     )
 
     # Compute surface and volume integrals
     integrated_variables = {}
     surf_int_values, surf_int_header, volu_int_values, volu_int_header = \
-        suppl_fcts_x.compute_integral_quantities(
+        suppl_fcts.compute_integral_quantities(
             configs, results, integrated_variables,
             mesh, subdomains, boundaries, rank
         )
