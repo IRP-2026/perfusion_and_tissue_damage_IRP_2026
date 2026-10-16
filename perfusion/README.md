@@ -3,8 +3,6 @@
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
 [![FEniCS](https://img.shields.io/badge/FEniCS-Legacy%20%2F%20X-orange.svg)](https://fenicsproject.org/)
 
-# Perfusion model
-
 The perfusion model is part of the GEMINI project. For more information, please see one of these links :
 
 - [GEMINI's website](https://dth-gemini.eu/)
@@ -14,7 +12,7 @@ Perfusion models the amount of blood delivered to a given amount of tissue in a 
 
 ---
 
-## Simulation Preview (RMCAo Case)
+# Simulation Preview (RMCAo Case)
 
 Here is a 360° rotation view of a simulated right middle cerebral artery occlusion (**RMCAo**) resulting in a distinct perfusion deficit (hypoperfusion area in purple/blue):
 
@@ -24,34 +22,34 @@ Here is a 360° rotation view of a simulated right middle cerebral artery occlus
 
 ---
 
-
 # Table of contents
 
-This README covers several subjects listed below. 
+- [About the Project](#-about-the-project)
+- [Brain Meshes & Clinical Data](#-brain-meshes--clinical-data)
+- [State of the branch](#-state-of-the-branch)
+- [Pipeline](#-pipeline)
+- [Accessing the documentation](#-accessing-the-documentation)
+  
+# About the Project
 
-- [State of the branch](#state-of-the-branch)
-- [Getting started](#getting-started)
-- [Pipeline](#pipeline)
-- [Accessing the documentation](#accessing-the-documentation)
-- [Contributing to the project](CONTRIBUTING.md)
+Perfusion models the amount of blood delivered to a given amount of tissue in a given time, typically expressed in $\text{ml/min/100g}$. This repository provides robust numerical solvers to compute pressure fields, velocity profiles, permeability tensors, and ischemic lesion volume proxies across healthy and occluded cerebral vasculature cases (e.g., MCAo, ACAo, PCAo).
 
-# State of the branch
+## Brain Meshes & Clinical Data
 
-This folder is currently in a full migration phase from Legacy to X.
+The finite element models rely on patient-specific and standardized high-resolution brain meshes derived from clinical neuroimaging data.
 
-The [Legacy_version](src/Legacy_version) folder is almost completely refactored. 
-The files have been moved in the correct folders and functions have been created for the long scripts to create 
-modularity and introduce separation of concerns. 
+- **Mesh Archive**: The compressed brain geometry files are packaged in `brain_meshes.tar.xz`.
+- **Mesh Source**: The brain mesh is adapted from [Garcia-Gonzalez et al. (2017)](#-references), *"On the mechanical behaviour of PEEK and HA cranial implants under impact loading"*.
+- **Anatomical Regions**: Cortical surface regions and arterial territories are systematically indexed (e.g., ACA, MCA, PCA for both left and right hemispheres) to handle focal occlusions accurately and capture the wide inter-patient variability inherent to clinical stroke data.
 
-A modernisation from FEniCS Legacy to FEniCS-X has been initiated in the [X_version](src/X_version) folder. 
-Most of the files have been updated. The simulations migrated are the 
-[permeability_initialiser.py](src/X_version/simulation/permeability_initialiser.py), the [basic_flow_solver_x.py], and their corresponding functions. 
+## State of the branch
 
-A testing effort have been started in the [test](test) folder. A fixture, representing a mesh of a cube rotated on 
-itself, has been created to this purpose. Some initial tests have been produced for the 
-[finite_element_fcts.py](src/Legacy_version/utils/finite_element_fcts.py) of the Legacy version in the [test](test) folder.
+This repository is currently undergoing an active migration phase from Legacy FEniCS to modern **FEniCS-X**:
 
-The documentation has been enhanced in the [docs](../docs) folder.
+- **`src/Legacy_version/`**: Fully refactored and modularized codebase using legacy FEniCS.
+- **`src/X_version/`**: Modernized implementation leveraging FEniCS-X for high-performance parallel computing (`basic_flow_solver_x.py`, `permeability_initialiser_x.py`).
+- **`images/`**: Contains visual assets and simulation plots for documentation and paper figures.
+- **`test/`**: Unit tests and verification fixtures (including rotated cube validation meshes).
 
 # Getting started
 
