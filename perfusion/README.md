@@ -1,12 +1,29 @@
 # Perfusion model
 
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+[![FEniCS](https://img.shields.io/badge/FEniCS-Legacy%20%2F%20X-orange.svg)](https://fenicsproject.org/)
+
+# Perfusion model
+
 The perfusion model is part of the GEMINI project. For more information, please see one of these links :
 
 - [GEMINI's website](https://dth-gemini.eu/)
 - [A paper about the perfusion model](https://royalsocietypublishing.org/doi/10.1098/rsfs.2019.0125)
 
-Perfusion models the amount of blood delivered to a given amount of tissue in a given time. 
-It is expressed in [ml/min/100g]. 
+Perfusion models the amount of blood delivered to a given amount of tissue in a given time, expressed in **[ml/min/100g]**.
+
+---
+
+## Simulation Preview (RMCAo Case)
+
+Here is a 360° rotation view of a simulated right middle cerebral artery occlusion (**RMCAo**) resulting in a distinct perfusion deficit (hypoperfusion area in purple/blue):
+
+<p align="center">
+  <img src="brain_rotation.gif" width="60%" alt="RMCAo Perfusion Rotation">
+</p>
+
+---
+
 
 # Table of contents
 
